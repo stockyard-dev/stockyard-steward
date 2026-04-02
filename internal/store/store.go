@@ -22,5 +22,27 @@ func now()string{return time.Now().UTC().Format(time.RFC3339)}
 func(d *DB)Create(e *Expense)error{e.ID=genID();e.CreatedAt=now();_,err:=d.db.Exec(`INSERT INTO expenses(id,description,amount,category,vendor,date,payment_method,receipt,status,created_at)VALUES(?,?,?,?,?,?,?,?,?,?)`,e.ID,e.Description,e.Amount,e.Category,e.Vendor,e.Date,e.PaymentMethod,e.Receipt,e.Status,e.CreatedAt);return err}
 func(d *DB)Get(id string)*Expense{var e Expense;if d.db.QueryRow(`SELECT id,description,amount,category,vendor,date,payment_method,receipt,status,created_at FROM expenses WHERE id=?`,id).Scan(&e.ID,&e.Description,&e.Amount,&e.Category,&e.Vendor,&e.Date,&e.PaymentMethod,&e.Receipt,&e.Status,&e.CreatedAt)!=nil{return nil};return &e}
 func(d *DB)List()[]Expense{rows,_:=d.db.Query(`SELECT id,description,amount,category,vendor,date,payment_method,receipt,status,created_at FROM expenses ORDER BY created_at DESC`);if rows==nil{return nil};defer rows.Close();var o []Expense;for rows.Next(){var e Expense;rows.Scan(&e.ID,&e.Description,&e.Amount,&e.Category,&e.Vendor,&e.Date,&e.PaymentMethod,&e.Receipt,&e.Status,&e.CreatedAt);o=append(o,e)};return o}
+func(d *DB)Update(e *Expense)error{_,err:=d.db.Exec(`UPDATE expenses SET description=?,amount=?,category=?,vendor=?,date=?,payment_method=?,receipt=?,status=? WHERE id=?`,e.Description,e.Amount,e.Category,e.Vendor,e.Date,e.PaymentMethod,e.Receipt,e.Status,e.ID);return err}
 func(d *DB)Delete(id string)error{_,err:=d.db.Exec(`DELETE FROM expenses WHERE id=?`,id);return err}
 func(d *DB)Count()int{var n int;d.db.QueryRow(`SELECT COUNT(*) FROM expenses`).Scan(&n);return n}
+
+func(d *DB)Search(q string, filters map[string]string)[]Expense{
+    where:="1=1"
+    args:=[]any{}
+    if q!=""{
+        where+=" AND (description LIKE ?)"
+        args=append(args,"%"+q+"%");
+    }
+    if v,ok:=filters["category"];ok&&v!=""{where+=" AND category=?";args=append(args,v)}
+    if v,ok:=filters["status"];ok&&v!=""{where+=" AND status=?";args=append(args,v)}
+    rows,_:=d.db.Query(`SELECT id,description,amount,category,vendor,date,payment_method,receipt,status,created_at FROM expenses WHERE `+where+` ORDER BY created_at DESC`,args...)
+    if rows==nil{return nil};defer rows.Close()
+    var o []Expense;for rows.Next(){var e Expense;rows.Scan(&e.ID,&e.Description,&e.Amount,&e.Category,&e.Vendor,&e.Date,&e.PaymentMethod,&e.Receipt,&e.Status,&e.CreatedAt);o=append(o,e)};return o
+}
+
+func(d *DB)Stats()map[string]any{
+    m:=map[string]any{"total":d.Count()}
+    rows,_:=d.db.Query(`SELECT status,COUNT(*) FROM expenses GROUP BY status`)
+    if rows!=nil{defer rows.Close();by:=map[string]int{};for rows.Next(){var s string;var c int;rows.Scan(&s,&c);by[s]=c};m["by_status"]=by}
+    return m
+}
