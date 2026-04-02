@@ -1,12 +1,23 @@
 package store
-import("database/sql";"fmt";"os";"path/filepath";"time";_ "modernc.org/sqlite")
-type DB struct{*sql.DB}
-type Expense struct{ID int64 `json:"id"`;Description string `json:"description"`;AmountCents int64 `json:"amount_cents"`;Category string `json:"category"`;Submitter string `json:"submitter"`;Status string `json:"status"`;Date string `json:"date"`;Notes string `json:"notes"`;CreatedAt time.Time `json:"created_at"`}
-func Open(d string)(*DB,error){os.MkdirAll(d,0755);dsn:=filepath.Join(d,"steward.db")+"?_journal_mode=WAL&_busy_timeout=5000";db,err:=sql.Open("sqlite",dsn);if err!=nil{return nil,fmt.Errorf("open: %w",err)};db.SetMaxOpenConns(1);migrate(db);return &DB{db},nil}
-func migrate(db *sql.DB){db.Exec(`CREATE TABLE IF NOT EXISTS expenses(id INTEGER PRIMARY KEY AUTOINCREMENT,description TEXT NOT NULL,amount_cents INTEGER NOT NULL,category TEXT DEFAULT 'other',submitter TEXT DEFAULT '',status TEXT DEFAULT 'pending',date TEXT DEFAULT '',notes TEXT DEFAULT '',created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`)}
-func(db *DB)Create(e *Expense)error{res,err:=db.Exec(`INSERT INTO expenses(description,amount_cents,category,submitter,date,notes)VALUES(?,?,?,?,?,?)`,e.Description,e.AmountCents,e.Category,e.Submitter,e.Date,e.Notes);if err!=nil{return err};e.ID,_=res.LastInsertId();return nil}
-func(db *DB)List(status string)([]Expense,error){q:=`SELECT id,description,amount_cents,category,submitter,status,date,notes,created_at FROM expenses WHERE 1=1`;args:=[]interface{}{};if status!=""{q+=` AND status=?`;args=append(args,status)};q+=` ORDER BY created_at DESC`;rows,err:=db.Query(q,args...);if err!=nil{return nil,err};defer rows.Close();var out[]Expense;for rows.Next(){var e Expense;rows.Scan(&e.ID,&e.Description,&e.AmountCents,&e.Category,&e.Submitter,&e.Status,&e.Date,&e.Notes,&e.CreatedAt);out=append(out,e)};return out,nil}
-func(db *DB)Approve(id int64){db.Exec(`UPDATE expenses SET status='approved' WHERE id=?`,id)}
-func(db *DB)Reject(id int64){db.Exec(`UPDATE expenses SET status='rejected' WHERE id=?`,id)}
-func(db *DB)Delete(id int64){db.Exec(`DELETE FROM expenses WHERE id=?`,id)}
-func(db *DB)Stats()(map[string]interface{},error){var pending,total int;var sum int64;db.QueryRow(`SELECT COUNT(*) FROM expenses WHERE status='pending'`).Scan(&pending);db.QueryRow(`SELECT COUNT(*),COALESCE(SUM(amount_cents),0) FROM expenses WHERE status='approved'`).Scan(&total,&sum);return map[string]interface{}{"pending":pending,"approved":total,"approved_total_cents":sum},nil}
+import ("database/sql";"fmt";"os";"path/filepath";"time";_ "modernc.org/sqlite")
+type DB struct{db *sql.DB}
+type Item struct{
+	ID string `json:"id"`
+	Name string `json:"name"`
+	Description string `json:"description"`
+	Status string `json:"status"`
+	Category string `json:"category"`
+	Tags string `json:"tags"`
+	CreatedAt string `json:"created_at"`
+}
+func Open(d string)(*DB,error){if err:=os.MkdirAll(d,0755);err!=nil{return nil,err};db,err:=sql.Open("sqlite",filepath.Join(d,"steward.db")+"?_journal_mode=WAL&_busy_timeout=5000");if err!=nil{return nil,err}
+db.Exec(`CREATE TABLE IF NOT EXISTS items(id TEXT PRIMARY KEY,name TEXT NOT NULL,description TEXT DEFAULT '',status TEXT DEFAULT 'active',category TEXT DEFAULT '',tags TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')))`)
+return &DB{db:db},nil}
+func(d *DB)Close()error{return d.db.Close()}
+func genID()string{return fmt.Sprintf("%d",time.Now().UnixNano())}
+func now()string{return time.Now().UTC().Format(time.RFC3339)}
+func(d *DB)Create(e *Item)error{e.ID=genID();e.CreatedAt=now();_,err:=d.db.Exec(`INSERT INTO items(id,name,description,status,category,tags,created_at)VALUES(?,?,?,?,?,?,?)`,e.ID,e.Name,e.Description,e.Status,e.Category,e.Tags,e.CreatedAt);return err}
+func(d *DB)Get(id string)*Item{var e Item;if d.db.QueryRow(`SELECT id,name,description,status,category,tags,created_at FROM items WHERE id=?`,id).Scan(&e.ID,&e.Name,&e.Description,&e.Status,&e.Category,&e.Tags,&e.CreatedAt)!=nil{return nil};return &e}
+func(d *DB)List()[]Item{rows,_:=d.db.Query(`SELECT id,name,description,status,category,tags,created_at FROM items ORDER BY created_at DESC`);if rows==nil{return nil};defer rows.Close();var o []Item;for rows.Next(){var e Item;rows.Scan(&e.ID,&e.Name,&e.Description,&e.Status,&e.Category,&e.Tags,&e.CreatedAt);o=append(o,e)};return o}
+func(d *DB)Delete(id string)error{_,err:=d.db.Exec(`DELETE FROM items WHERE id=?`,id);return err}
+func(d *DB)Count()int{var n int;d.db.QueryRow(`SELECT COUNT(*) FROM items`).Scan(&n);return n}
