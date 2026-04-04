@@ -37,6 +37,7 @@ patch.Date=existing.Date};if patch.PaymentMethod==""{
 patch.PaymentMethod=existing.PaymentMethod};if patch.Receipt==""{
 patch.Receipt=existing.Receipt};if patch.Status==""{
 patch.Status=existing.Status}
+    if patch.Amount==0{patch.Amount=existing.Amount}
     s.db.Update(&patch);wj(w,200,s.db.Get(patch.ID))
 }
 func(s *Server)del(w http.ResponseWriter,r *http.Request){s.db.Delete(r.PathValue("id"));wj(w,200,map[string]string{"deleted":"ok"})}
